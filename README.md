@@ -1,3 +1,5 @@
+Source: https://hub.darcs.net/jandrew/sn-nimble-editor
+
 ## Standard Notes Nimble Editor
 
 A simple text editor for the [Standard Notes](https://standardnotes.org/) app, based off a clone of the [Indent Editor](https://github.com/MaxLap/standard-notes-indent-editor) (v1.4.3). — please see that project for a fuller description of the underlying editor. The Nimble editor adds the following:
