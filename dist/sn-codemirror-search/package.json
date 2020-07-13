@@ -21,7 +21,7 @@
   "_resolved": "https://registry.npmjs.org/sn-codemirror-search/-/sn-codemirror-search-1.0.0.tgz",
   "_shasum": "13c06b2cead6a3670eabdbffadd69d839ea53c3f",
   "_spec": "sn-codemirror-search@1.0.0",
-  "_where": "/home/max/projects/standard-notes-indent-text",
+  "_where": "/home/andrew/dev/snotes/nimble/newnimble",
   "author": "",
   "bugs": {
     "url": "https://github.com/mobitar/CodeMirror-search/issues"

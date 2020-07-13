@@ -82,9 +82,6 @@ body, html {
   .cm-header-#{$number} {
     font-weight: bold;
     font-size: $font-size;
-  }
-
-  .cfg-color-headers .cm-header-#{$number} {
     color: var(--sn-stylekit-info-color);
   }
 
@@ -103,12 +100,8 @@ body, html {
 @include make-cm-header(3, 100%);
 @include make-cm-header(4, 100%);
 
-.colored-like-header {
-  color: var(--sn-stylekit-info-color);
-}
-
 .CodeMirror .blank-line {
-  line-height: 0.4em !important;
+  line-height: 0.6em !important;
 }
 
 .CodeMirror {
@@ -164,20 +157,4 @@ body, html {
 .CodeMirror-selectedtext {
   color: var(--sn-stylekit-info-contrast-color) !important;
   background: var(--sn-stylekit-info-color) !important;
-}
-
-.CodeMirror.use-monospace-everywhere {
-  font-family: var(--sn-stylekit-monospace-font);
-}
-
-.CodeMirror.remove-longer-lines .CodeMirror-lines {
-  max-width: 50em;
-}
-
-#config-panel {
-  color: var(--sn-stylekit-editor-foreground-color) !important;
-}
-
-#config-panel a {
-  color: var(--sn-stylekit-info-color) !important
 }

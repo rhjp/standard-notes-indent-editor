@@ -422,9 +422,6 @@ body, html {
 .cm-header-1 {
   font-weight: bold;
   font-size: 135%;
-}
-
-.cfg-color-headers .cm-header-1 {
   color: var(--sn-stylekit-info-color);
 }
 
@@ -440,9 +437,6 @@ body, html {
 .cm-header-2 {
   font-weight: bold;
   font-size: 120%;
-}
-
-.cfg-color-headers .cm-header-2 {
   color: var(--sn-stylekit-info-color);
 }
 
@@ -458,9 +452,6 @@ body, html {
 .cm-header-3 {
   font-weight: bold;
   font-size: 100%;
-}
-
-.cfg-color-headers .cm-header-3 {
   color: var(--sn-stylekit-info-color);
 }
 
@@ -476,9 +467,6 @@ body, html {
 .cm-header-4 {
   font-weight: bold;
   font-size: 100%;
-}
-
-.cfg-color-headers .cm-header-4 {
   color: var(--sn-stylekit-info-color);
 }
 
@@ -491,12 +479,8 @@ body, html {
   font-size: 111.1111111111%;
 }
 
-.colored-like-header {
-  color: var(--sn-stylekit-info-color);
-}
-
 .CodeMirror .blank-line {
-  line-height: 0.4em !important;
+  line-height: 0.6em !important;
 }
 
 .CodeMirror {
@@ -549,20 +533,4 @@ body, html {
 .CodeMirror-selectedtext {
   color: var(--sn-stylekit-info-contrast-color) !important;
   background: var(--sn-stylekit-info-color) !important;
-}
-
-.CodeMirror.use-monospace-everywhere {
-  font-family: var(--sn-stylekit-monospace-font);
-}
-
-.CodeMirror.remove-longer-lines .CodeMirror-lines {
-  max-width: 50em;
-}
-
-#config-panel {
-  color: var(--sn-stylekit-editor-foreground-color) !important;
-}
-
-#config-panel a {
-  color: var(--sn-stylekit-info-color) !important;
 }

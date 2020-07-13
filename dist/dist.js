@@ -485,14 +485,15 @@
           for (++i$7; i$7 < len && countsAsLeft.test(types[i$7]); ++i$7) {}
           order.push(new BidiSpan(0, start, i$7));
         } else {
-          var pos = i$7, at = order.length;
+          var pos = i$7, at = order.length, isRTL = direction == "rtl" ? 1 : 0;
           for (++i$7; i$7 < len && types[i$7] != "L"; ++i$7) {}
           for (var j$2 = pos; j$2 < i$7;) {
             if (countsAsNum.test(types[j$2])) {
-              if (pos < j$2) { order.splice(at, 0, new BidiSpan(1, pos, j$2)); }
+              if (pos < j$2) { order.splice(at, 0, new BidiSpan(1, pos, j$2)); at += isRTL; }
               var nstart = j$2;
               for (++j$2; j$2 < i$7 && countsAsNum.test(types[j$2]); ++j$2) {}
               order.splice(at, 0, new BidiSpan(2, nstart, j$2));
+              at += isRTL;
               pos = j$2;
             } else { ++j$2; }
           }
@@ -3550,7 +3551,7 @@
   }
 
   function setScrollTop(cm, val, forceScroll) {
-    val = Math.min(cm.display.scroller.scrollHeight - cm.display.scroller.clientHeight, val);
+    val = Math.max(0, Math.min(cm.display.scroller.scrollHeight - cm.display.scroller.clientHeight, val));
     if (cm.display.scroller.scrollTop == val && !forceScroll) { return }
     cm.doc.scrollTop = val;
     cm.display.scrollbars.setScrollTop(val);
@@ -3560,7 +3561,7 @@
   // Sync scroller and scrollbar, ensure the gutter elements are
   // aligned.
   function setScrollLeft(cm, val, isScroller, forceScroll) {
-    val = Math.min(val, cm.display.scroller.scrollWidth - cm.display.scroller.clientWidth);
+    val = Math.max(0, Math.min(val, cm.display.scroller.scrollWidth - cm.display.scroller.clientWidth));
     if ((isScroller ? val == cm.doc.scrollLeft : Math.abs(cm.doc.scrollLeft - val) < 2) && !forceScroll) { return }
     cm.doc.scrollLeft = val;
     alignHorizontally(cm);
@@ -4147,6 +4148,8 @@
         update.visible = visibleLines(cm.display, cm.doc, viewport);
         if (update.visible.from >= cm.display.viewFrom && update.visible.to <= cm.display.viewTo)
           { break }
+      } else if (first) {
+        update.visible = visibleLines(cm.display, cm.doc, viewport);
       }
       if (!updateDisplayIfNeeded(cm, update)) { break }
       updateHeightsInViewport(cm);
@@ -6231,7 +6234,12 @@
       for (var i$1 = 0; i$1 < hist.undone.length; i$1++) { if (!hist.undone[i$1].ranges) { ++undone; } }
       return {undo: done, redo: undone}
     },
-    clearHistory: function() {this.history = new History(this.history.maxGeneration);},
+    clearHistory: function() {
+      var this$1 = this;
+
+      this.history = new History(this.history.maxGeneration);
+      linkedDocs(this, function (doc) { return doc.history = this$1.history; }, true);
+    },
 
     markClean: function() {
       this.cleanGeneration = this.changeGeneration(true);
@@ -6482,28 +6490,39 @@
     // and insert it.
     if (files && files.length && window.FileReader && window.File) {
       var n = files.length, text = Array(n), read = 0;
-      var loadFile = function (file, i) {
-        if (cm.options.allowDropFileTypes &&
-            indexOf(cm.options.allowDropFileTypes, file.type) == -1)
-          { return }
-
-        var reader = new FileReader;
-        reader.onload = operation(cm, function () {
-          var content = reader.result;
-          if (/[\x00-\x08\x0e-\x1f]{2}/.test(content)) { content = ""; }
-          text[i] = content;
-          if (++read == n) {
+      var markAsReadAndPasteIfAllFilesAreRead = function () {
+        if (++read == n) {
+          operation(cm, function () {
             pos = clipPos(cm.doc, pos);
             var change = {from: pos, to: pos,
-                          text: cm.doc.splitLines(text.join(cm.doc.lineSeparator())),
+                          text: cm.doc.splitLines(
+                              text.filter(function (t) { return t != null; }).join(cm.doc.lineSeparator())),
                           origin: "paste"};
             makeChange(cm.doc, change);
-            setSelectionReplaceHistory(cm.doc, simpleSelection(pos, changeEnd(change)));
+            setSelectionReplaceHistory(cm.doc, simpleSelection(clipPos(cm.doc, pos), clipPos(cm.doc, changeEnd(change))));
+          })();
+        }
+      };
+      var readTextFromFile = function (file, i) {
+        if (cm.options.allowDropFileTypes &&
+            indexOf(cm.options.allowDropFileTypes, file.type) == -1) {
+          markAsReadAndPasteIfAllFilesAreRead();
+          return
+        }
+        var reader = new FileReader;
+        reader.onerror = function () { return markAsReadAndPasteIfAllFilesAreRead(); };
+        reader.onload = function () {
+          var content = reader.result;
+          if (/[\x00-\x08\x0e-\x1f]{2}/.test(content)) {
+            markAsReadAndPasteIfAllFilesAreRead();
+            return
           }
-        });
+          text[i] = content;
+          markAsReadAndPasteIfAllFilesAreRead();
+        };
         reader.readAsText(file);
       };
-      for (var i = 0; i < n; ++i) { loadFile(files[i], i); }
+      for (var i = 0; i < files.length; i++) { readTextFromFile(files[i], i); }
     } else { // Normal drop
       // Don't do a replace if the drop happened inside of the selected text.
       if (cm.state.draggingText && cm.doc.sel.contains(pos) > -1) {
@@ -6813,6 +6832,7 @@
 
   function endOfLine(visually, cm, lineObj, lineNo, dir) {
     if (visually) {
+      if (cm.doc.direction == "rtl") { dir = -dir; }
       var order = getOrder(lineObj, cm.doc.direction);
       if (order) {
         var part = dir < 0 ? lst(order) : order[0];
@@ -7067,7 +7087,7 @@
     var line = getLine(cm.doc, start.line);
     var order = getOrder(line, cm.doc.direction);
     if (!order || order[0].level == 0) {
-      var firstNonWS = Math.max(0, line.text.search(/\S/));
+      var firstNonWS = Math.max(start.ch, line.text.search(/\S/));
       var inWS = pos.line == start.line && pos.ch <= firstNonWS && pos.ch;
       return Pos(start.line, inWS ? 0 : firstNonWS, start.sticky)
     }
@@ -7738,6 +7758,12 @@
       }
       cm.display.input.readOnlyChanged(val);
     });
+
+    option("screenReaderLabel", null, function (cm, val) {
+      val = (val === '') ? null : val;
+      cm.display.input.screenReaderLabelChanged(val);
+    });
+
     option("disableInput", false, function (cm, val) {if (!val) { cm.display.input.reset(); }}, true);
     option("dragDrop", true, dragDropChanged);
     option("allowDropFileTypes", null);
@@ -7890,6 +7916,9 @@
     // which point we can't mess with it anymore. Context menu is
     // handled in onMouseDown for these browsers.
     on(d.scroller, "contextmenu", function (e) { return onContextMenu(cm, e); });
+    on(d.input.getField(), "contextmenu", function (e) {
+      if (!d.scroller.contains(e.target)) { onContextMenu(cm, e); }
+    });
 
     // Used to suppress mouse event handling when a touch happens
     var touchFinished, prevTouch = {end: 0};
@@ -8566,7 +8595,7 @@
         clearCaches(this);
         scrollToCoords(this, this.doc.scrollLeft, this.doc.scrollTop);
         updateGutterSpace(this.display);
-        if (oldHeight == null || Math.abs(oldHeight - textHeight(this.display)) > .5)
+        if (oldHeight == null || Math.abs(oldHeight - textHeight(this.display)) > .5 || this.options.lineWrapping)
           { estimateLineHeights(this); }
         signal(this, "refresh", this);
       }),
@@ -8620,8 +8649,9 @@
     var oldPos = pos;
     var origDir = dir;
     var lineObj = getLine(doc, pos.line);
+    var lineDir = visually && doc.direction == "rtl" ? -dir : dir;
     function findNextLine() {
-      var l = pos.line + dir;
+      var l = pos.line + lineDir;
       if (l < doc.first || l >= doc.first + doc.size) { return false }
       pos = new Pos(l, pos.ch, pos.sticky);
       return lineObj = getLine(doc, l)
@@ -8635,7 +8665,7 @@
       }
       if (next == null) {
         if (!boundToLine && findNextLine())
-          { pos = endOfLine(visually, doc.cm, lineObj, pos.line, dir); }
+          { pos = endOfLine(visually, doc.cm, lineObj, pos.line, lineDir); }
         else
           { return false }
       } else {
@@ -8782,9 +8812,18 @@
     on(div, "cut", onCopyCut);
   };
 
+  ContentEditableInput.prototype.screenReaderLabelChanged = function (label) {
+    // Label for screenreaders, accessibility
+    if(label) {
+      this.div.setAttribute('aria-label', label);
+    } else {
+      this.div.removeAttribute('aria-label');
+    }
+  };
+
   ContentEditableInput.prototype.prepareSelection = function () {
     var result = prepareSelection(this.cm, false);
-    result.focus = this.cm.state.focused;
+    result.focus = document.activeElement == this.div;
     return result
   };
 
@@ -8880,7 +8919,7 @@
 
   ContentEditableInput.prototype.focus = function () {
     if (this.cm.options.readOnly != "nocursor") {
-      if (!this.selectionInEditor())
+      if (!this.selectionInEditor() || document.activeElement != this.div)
         { this.showSelection(this.prepareSelection(), true); }
       this.div.focus();
     }
@@ -9322,6 +9361,15 @@
     this.textarea = this.wrapper.firstChild;
   };
 
+  TextareaInput.prototype.screenReaderLabelChanged = function (label) {
+    // Label for screenreaders, accessibility
+    if(label) {
+      this.textarea.setAttribute('aria-label', label);
+    } else {
+      this.textarea.removeAttribute('aria-label');
+    }
+  };
+
   TextareaInput.prototype.prepareSelection = function () {
     // Redraw the selection and/or cursor
     var cm = this.cm, display = cm.display, doc = cm.doc;
@@ -9712,7 +9760,7 @@
 
   addLegacyProps(CodeMirror);
 
-  CodeMirror.version = "5.50.2";
+  CodeMirror.version = "5.53.2";
 
   return CodeMirror;
 
@@ -10528,17 +10576,10 @@ if (window) {
 ;(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 "use strict";
 
-/**
- * This file handles part of the editor which is related to:
- * * wrapping the text in a special way
- * * keyboard shortcuts and click actions
- */
-function IndentEditor(target_textarea, indent_editor_options) {
+function IndentEditor(target_textarea) {
   var editor;
-  var self = this;
-  indent_editor_options = indent_editor_options || {};
 
-  this.measureLineElement = function (elt) {
+  function measureLineElement(elt) {
     var wrappingSpan = elt.firstElementChild;
     var finalSpan = document.createElement('span');
     elt.appendChild(finalSpan);
@@ -10574,9 +10615,9 @@ function IndentEditor(target_textarea, indent_editor_options) {
       indentWidth: indentWidth,
       textMustWrap: textMustWrap
     };
-  };
+  }
 
-  this.selectionsToLineRanges = function (sels) {
+  function selectionsToLineRanges(sels) {
     var lineRanges = [];
 
     for (var i = 0; i < sels.length; i++) {
@@ -10603,9 +10644,9 @@ function IndentEditor(target_textarea, indent_editor_options) {
     }
 
     return lineRanges;
-  };
+  }
 
-  this.duplicate = function (cm) {
+  function duplicate(cm) {
     var sels = cm.listSelections();
 
     for (var i = sels.length - 1; i >= 0; i--) {
@@ -10639,11 +10680,11 @@ function IndentEditor(target_textarea, indent_editor_options) {
         cm.replaceRange(content, start, start, "+input");
       }
     }
-  };
+  }
 
-  this.moveSelectedLinesUp = function (cm) {
+  function moveSelectedLinesUp(cm) {
     var sels = cm.listSelections();
-    var lineRanges = this.selectionsToLineRanges(sels);
+    var lineRanges = selectionsToLineRanges(sels);
     var nbSelsTouchingFirstLine = 0;
 
     if (lineRanges[0][0] == 0) {
@@ -10711,11 +10752,11 @@ function IndentEditor(target_textarea, indent_editor_options) {
     }
 
     cm.doc.setSelections(newSels);
-  };
+  }
 
-  this.moveSelectedLinesDown = function (cm) {
+  function moveSelectedLinesDown(cm) {
     var sels = cm.listSelections();
-    var lineRanges = this.selectionsToLineRanges(sels);
+    var lineRanges = selectionsToLineRanges(sels);
     var nbSelsTouchingLastLine = 0;
     var lastLineNumber = cm.doc.lastLine();
 
@@ -10784,10 +10825,10 @@ function IndentEditor(target_textarea, indent_editor_options) {
     }
 
     cm.doc.setSelections(newSels);
-  };
+  }
 
-  this.setupEditor = function (target_textarea) {
-    this.editor = editor = CodeMirror.fromTextArea(target_textarea, {
+  function setupEditor(target_textarea) {
+    editor = CodeMirror.fromTextArea(target_textarea, {
       mode: "indent_text",
       lineWrapping: true,
       tabSize: 2,
@@ -10805,7 +10846,6 @@ function IndentEditor(target_textarea, indent_editor_options) {
             cm.replaceRange(cm.doc.lineSeparator(), sels[i].anchor, sels[i].head, "+input");
           }
 
-          var new_indentation;
           sels = cm.listSelections();
 
           for (var i = 0; i < sels.length; i++) {
@@ -10813,37 +10853,44 @@ function IndentEditor(target_textarea, indent_editor_options) {
             var prev_line = cm.doc.getLine(sels[i].anchor.line - 1);
 
             if (state.inCodeBlock) {
+              var prev_indentation;
+
               if (state.codeBlockHasReadText) {
-                new_indentation = /^\s*/.exec(prev_line)[0];
+                prev_indentation = /^\s*/.exec(prev_line)[0];
               } else {
-                new_indentation = /^[-*+>\s]*/.exec(prev_line)[0];
-                new_indentation = new_indentation.replace(/[-*+>]/g, ' ');
+                prev_indentation = /^[-*+>\s]*/.exec(prev_line)[0];
+                prev_indentation = prev_indentation.replace(/[-*+>]/g, ' ');
               }
             } else {
-              // Need a space after the dot, or to reach the end of the line
-              var digits = /^\s*(\d+)\.($|\s+)/.exec(prev_line);
+              var digits = /^\s*(\d+)\.\s+/.exec(prev_line);
 
               if (digits) {
                 prev_line = prev_line.replace(/\d+/, parseInt(digits, 10) + 1);
               }
 
-              new_indentation = /^\s*(\d+)\.\s+|[-*+>\s]*/.exec(prev_line)[0];
+              var alpha = /^\s*([a-zA-Z])\.\s+/.exec(prev_line);
+
+              if (alpha) {
+                prev_line = prev_line.replace(/[a-zA-Z]/, String.fromCharCode(alpha[1].charCodeAt(0) + 1));
+              }
+
+              prev_indentation = /^\s*(\d+|[a-zA-Z])\.\s+|[-*+>\s]*/.exec(prev_line)[0];
             }
 
-            cm.replaceRange(new_indentation, sels[i].anchor, sels[i].head, "+input");
+            cm.replaceRange(prev_indentation, sels[i].anchor, sels[i].head, "+input");
           }
 
           cm.scrollIntoView();
         },
         "Home": "goLineLeftSmart",
         "End": "goLineRight",
-        "Ctrl-D": this.duplicate.bind(this),
-        "Cmd-D": this.duplicate.bind(this),
+        "Ctrl-D": duplicate,
+        "Cmd-D": duplicate,
         // Shift has to be first for some reason...
-        "Shift-Ctrl-Up": this.moveSelectedLinesUp.bind(this),
-        "Shift-Cmd-Up": this.moveSelectedLinesUp.bind(this),
-        "Shift-Ctrl-Down": this.moveSelectedLinesDown.bind(this),
-        "Shift-Cmd-Down": this.moveSelectedLinesDown.bind(this)
+        "Shift-Ctrl-Up": moveSelectedLinesUp,
+        "Shift-Cmd-Up": moveSelectedLinesUp,
+        "Shift-Ctrl-Down": moveSelectedLinesDown,
+        "Shift-Cmd-Down": moveSelectedLinesDown
       }
     }); // only use CodeMirror markselection when not in contenteditable
 
@@ -10886,11 +10933,10 @@ function IndentEditor(target_textarea, indent_editor_options) {
           e.preventDefault();
         }
       }
-    }); // This is the base padding in the css if I remember well
-
+    });
     var basePadding = 4;
     editor.on("renderLine", function (cm, line, elt) {
-      var measures = self.measureLineElement(elt);
+      var measures = measureLineElement(elt);
       var indentationWidth = measures.indentWidth;
       var scrollInfo = cm.getScrollInfo();
       var maxOff = scrollInfo.width - 150;
@@ -10907,16 +10953,11 @@ function IndentEditor(target_textarea, indent_editor_options) {
 
       if (measures.textMustWrap) {
         elt.className += " cm-line-is-wrapped";
-      } // Making the lines after the first have just the right indentation using padding.
-      // And making the first line back to where it would be by removing that padding.
-
+      }
 
       elt.style.textIndent = "-" + wrapOffset + "px";
       elt.style.paddingLeft = basePadding + wrapOffset + "px";
     });
-    this.setAllowLongerLinesNoRefresh(!!indent_editor_options.allow_longer_lines);
-    this.setColorHeaders(!!indent_editor_options.color_headers);
-    this.setMonospaceNoRefresh(!!indent_editor_options.monospace);
     editor.refresh(); // Need to do refresh on the codemirror instance when there is resizing
     // This is necessary for to fix the max wrapping width in hte edge cases that it is necessary...
 
@@ -10929,56 +10970,14 @@ function IndentEditor(target_textarea, indent_editor_options) {
         editor.refresh();
       }, 1000);
     });
-  };
+  }
 
-  this.setAllowLongerLinesNoRefresh = function (true_false) {
-    indent_editor_options.allow_longer_lines = true_false;
-
-    if (true_false) {
-      this.editor.getWrapperElement().classList.remove("remove-longer-lines");
-    } else {
-      this.editor.getWrapperElement().classList.add("remove-longer-lines");
-    }
-  };
-
-  this.setAllowLongerLines = function (true_false) {
-    this.setAllowLongerLinesNoRefresh(true_false);
-    this.editor.refresh();
-  };
-
-  this.setColorHeaders = function (true_false) {
-    indent_editor_options.color_headers = true_false;
-
-    if (true_false) {
-      this.editor.getWrapperElement().classList.add("cfg-color-headers");
-    } else {
-      this.editor.getWrapperElement().classList.remove("cfg-color-headers");
-    }
-  };
-
-  this.setMonospaceNoRefresh = function (true_false) {
-    indent_editor_options.monospace = true_false;
-
-    if (true_false) {
-      this.editor.getWrapperElement().classList.add("use-monospace-everywhere");
-    } else {
-      this.editor.getWrapperElement().classList.remove("use-monospace-everywhere");
-    }
-  };
-
-  this.setMonospace = function (true_false) {
-    this.setMonospaceNoRefresh(true_false);
-    this.editor.refresh();
-  };
-
-  this.setupEditor(target_textarea);
+  setupEditor(target_textarea);
+  return editor;
 }
 
 ;
 ;
-/**
-* This file handles part of the editor which is related to parsing the text and applying markup
-*/
 
 (function (CodeMirror) {
   "use strict";
@@ -11072,7 +11071,7 @@ function IndentEditor(target_textarea, indent_editor_options) {
 
           state.sawTextBeforeOnLine = false;
           state.headerLevel = 0;
-          var leadingSpace = matchIntoLeadingSpace(stream, state, /^(\s*\d+\.($|\s+)|[-*+>\s]+)/);
+          var leadingSpace = matchIntoLeadingSpace(stream, state, /^(\s*(\d+|[a-zA-Z])\.\s+|[-*+>\s]+)/);
 
           if (leadingSpace) {
             if (stream.eol() && /^\s*$/.test(leadingSpace)) {
@@ -11192,23 +11191,13 @@ function IndentEditor(target_textarea, indent_editor_options) {
 })(CodeMirror);
 
 ;
-/**
-* This file handles the Standard Notes related stuff and config stuff:
-* * loading up the editor
-* * saving the node
-* * changing and saving settings
-*/
-
 document.addEventListener("DOMContentLoaded", function (event) {
   var componentManager;
-  var workingNote;
+  var workingNote, clientData;
   var lastValue, lastUUID;
-  var editor, indent_editor;
+  var editor;
   var ignoreTextChange = false;
   var initialLoad = true;
-  var clientData = {
-    monospace: 'default'
-  };
 
   function loadComponentManager() {
     var permissions = [{
@@ -11261,12 +11250,6 @@ document.addEventListener("DOMContentLoaded", function (event) {
     clientData = note.clientData;
 
     if (editor) {
-      if (clientData) {
-        indent_editor.setAllowLongerLinesNoRefresh(finalOptionAllowLongerLines());
-        indent_editor.setColorHeaders(finalOptionColorHeaders());
-        indent_editor.setMonospaceNoRefresh(finalOptionMonospace());
-      }
-
       if (note.content.text !== lastValue) {
         ignoreTextChange = true;
         editor.getDoc().setValue(workingNote.content.text);
@@ -11281,9 +11264,7 @@ document.addEventListener("DOMContentLoaded", function (event) {
   }
 
   function loadEditor() {
-    indent_editor = new IndentEditor(document.getElementById("code"), finalOptions());
-    editor = indent_editor.editor;
-    window.editor = editor;
+    editor = IndentEditor(document.getElementById("code"));
     editor.on("change", function () {
       if (ignoreTextChange) {
         return;
@@ -11292,169 +11273,6 @@ document.addEventListener("DOMContentLoaded", function (event) {
       save();
     });
   }
-
-  function finalOptions() {
-    return {
-      allow_longer_lines: finalOptionAllowLongerLines(),
-      color_headers: finalOptionColorHeaders(),
-      monospace: finalOptionMonospace()
-    };
-  }
-
-  function finalOptionAllowLongerLines() {
-    return finalOption('allow_longer_lines', ['yes', 'no']);
-  }
-
-  function finalOptionColorHeaders() {
-    return finalOption('color_headers', ['yes', 'no']);
-  }
-
-  function finalOptionMonospace() {
-    return finalOption('monospace', ['no', 'yes']);
-  } // the first valid_values is used as default value
-
-
-  function finalOption(option_name, valid_values) {
-    var value = clientData[option_name];
-
-    if (!valid_values.includes(value)) {
-      value = chosenDefault(option_name, valid_values);
-    }
-
-    return yesNoToBool(value);
-  }
-
-  function chosenDefault(option_name, valid_values) {
-    if (componentManager && componentManager.componentData) {
-      var value = componentManager.componentDataValueForKey(option_name + "_default");
-
-      if (valid_values.includes(value)) {
-        return value;
-      } else {
-        return valid_values[0];
-      }
-    } else {
-      return valid_values[0];
-    }
-  }
-
-  function yesNoToBool(value) {
-    if (value == 'yes') {
-      return true;
-    } else if (value == 'no') {
-      return false;
-    } else {
-      throw 'Expected yes or no';
-    }
-  }
-
-  window.displayConfigPanel = function () {
-    if (componentManager && componentManager.componentData && componentManager.componentDataValueForKey("monospace_default") == 'yes') {
-      document.querySelectorAll('[name="monospace_default"][value="yes"]')[0].checked = true;
-    } else {
-      // default is no
-      document.querySelectorAll('[name="monospace_default"][value="no"]')[0].checked = true;
-    }
-
-    if (clientData.monospace == 'yes') {
-      document.querySelectorAll('[name="monospace"][value="yes"]')[0].checked = true;
-    } else if (clientData.monospace == 'no') {
-      document.querySelectorAll('[name="monospace"][value="no"]')[0].checked = true;
-    } else {
-      document.querySelectorAll('[name="monospace"][value="default"]')[0].checked = true;
-    }
-
-    if (componentManager && componentManager.componentData && componentManager.componentDataValueForKey("allow_longer_lines_default") == 'no') {
-      document.querySelectorAll('[name="allow_longer_lines_default"][value="no"]')[0].checked = true;
-    } else {
-      // default is yes
-      document.querySelectorAll('[name="allow_longer_lines_default"][value="yes"]')[0].checked = true;
-    }
-
-    if (clientData.allow_longer_lines == 'yes') {
-      document.querySelectorAll('[name="allow_longer_lines"][value="yes"]')[0].checked = true;
-    } else if (clientData.allow_longer_lines == 'no') {
-      document.querySelectorAll('[name="allow_longer_lines"][value="no"]')[0].checked = true;
-    } else {
-      document.querySelectorAll('[name="allow_longer_lines"][value="default"]')[0].checked = true;
-    }
-
-    if (componentManager && componentManager.componentData && componentManager.componentDataValueForKey("color_headers_default") == 'no') {
-      document.querySelectorAll('[name="color_headers_default"][value="no"]')[0].checked = true;
-    } else {
-      // default is yes
-      document.querySelectorAll('[name="color_headers_default"][value="yes"]')[0].checked = true;
-    }
-
-    if (clientData.color_headers == 'yes') {
-      document.querySelectorAll('[name="color_headers"][value="yes"]')[0].checked = true;
-    } else if (clientData.color_headers == 'no') {
-      document.querySelectorAll('[name="color_headers"][value="no"]')[0].checked = true;
-    } else {
-      document.querySelectorAll('[name="color_headers"][value="default"]')[0].checked = true;
-    }
-
-    document.getElementById('config-panel').style.display = 'block';
-    editor.getWrapperElement().style.display = 'none';
-    document.getElementById('config-panel-toggle').style.display = 'none';
-  };
-
-  window.hideConfigPanel = function () {
-    document.getElementById('config-panel').style.display = 'none';
-    editor.getWrapperElement().style.display = 'block';
-    document.getElementById('config-panel-toggle').style.display = 'inline';
-  };
-
-  window.changeAllowLongerLinesConfig = function (new_value) {
-    if (clientData) {
-      clientData.allow_longer_lines = new_value;
-    }
-
-    indent_editor.setAllowLongerLines(finalOptionAllowLongerLines());
-    save();
-  };
-
-  window.changeColorHeadersConfig = function (new_value) {
-    if (clientData) {
-      clientData.color_headers = new_value;
-    }
-
-    indent_editor.setColorHeaders(finalOptionColorHeaders());
-    save();
-  };
-
-  window.changeMonospaceConfig = function (new_value) {
-    if (clientData) {
-      clientData.monospace = new_value;
-    }
-
-    indent_editor.setMonospace(finalOptionMonospace());
-    save();
-  };
-
-  window.changeAllowLongerLinesDefaultConfig = function (new_value) {
-    if (componentManager) {
-      componentManager.setComponentDataValueForKey("allow_longer_lines_default", new_value);
-    }
-
-    indent_editor.setAllowLongerLines(finalOptionAllowLongerLines());
-  };
-
-  window.changeColorHeadersDefaultConfig = function (new_value) {
-    if (componentManager) {
-      componentManager.setComponentDataValueForKey("color_headers_default", new_value);
-    }
-
-    indent_editor.setColorHeaders(finalOptionColorHeaders());
-  };
-
-  window.changeMonospaceDefaultConfig = function (new_value) {
-    if (componentManager) {
-      componentManager.setComponentDataValueForKey("monospace_default", new_value);
-    }
-
-    indent_editor.setMonospace(finalOptionMonospace());
-  };
 
   loadEditor();
   loadComponentManager();

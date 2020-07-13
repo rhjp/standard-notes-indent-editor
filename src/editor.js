@@ -1,15 +1,7 @@
-/**
- * This file handles part of the editor which is related to:
- * * wrapping the text in a special way
- * * keyboard shortcuts and click actions
- */
-
-function IndentEditor(target_textarea, indent_editor_options) {
+function IndentEditor(target_textarea) {
   var editor;
-  var self = this;
-  indent_editor_options = indent_editor_options || {};
 
-  this.measureLineElement = function(elt) {
+  function measureLineElement(elt) {
     var wrappingSpan = elt.firstElementChild;
 
     var finalSpan = document.createElement('span');
@@ -45,7 +37,7 @@ function IndentEditor(target_textarea, indent_editor_options) {
     return {indentWidth: indentWidth, textMustWrap: textMustWrap}
   }
 
-  this.selectionsToLineRanges = function(sels) {
+  function selectionsToLineRanges(sels) {
     var lineRanges = [];
     for (var i = 0; i < sels.length; i++) {
       var anchor = sels[i].anchor;
@@ -70,7 +62,7 @@ function IndentEditor(target_textarea, indent_editor_options) {
     return lineRanges;
   }
 
-  this.duplicate = function(cm) {
+  function duplicate(cm) {
     var sels = cm.listSelections();
     for (var i = sels.length - 1; i >= 0; i--) {
       var anchor = sels[i].anchor;
@@ -97,9 +89,9 @@ function IndentEditor(target_textarea, indent_editor_options) {
     }
   }
 
-  this.moveSelectedLinesUp = function(cm) {
+  function moveSelectedLinesUp(cm) {
     var sels = cm.listSelections();
-    var lineRanges = this.selectionsToLineRanges(sels);
+    var lineRanges = selectionsToLineRanges(sels);
     var nbSelsTouchingFirstLine = 0;
 
     if (lineRanges[0][0] == 0) {
@@ -144,9 +136,9 @@ function IndentEditor(target_textarea, indent_editor_options) {
     cm.doc.setSelections(newSels);
   }
 
-  this.moveSelectedLinesDown = function(cm) {
+  function moveSelectedLinesDown(cm) {
     var sels = cm.listSelections();
-    var lineRanges = this.selectionsToLineRanges(sels);
+    var lineRanges = selectionsToLineRanges(sels);
     var nbSelsTouchingLastLine = 0;
     var lastLineNumber = cm.doc.lastLine();
 
@@ -194,8 +186,8 @@ function IndentEditor(target_textarea, indent_editor_options) {
     cm.doc.setSelections(newSels);
   }
 
-  this.setupEditor = function(target_textarea) {
-    this.editor = editor = CodeMirror.fromTextArea(target_textarea, {
+  function setupEditor(target_textarea) {
+    editor = CodeMirror.fromTextArea(target_textarea, {
       mode: "indent_text",
       lineWrapping: true,
       tabSize: 2,
@@ -211,39 +203,42 @@ function IndentEditor(target_textarea, indent_editor_options) {
             cm.replaceRange(cm.doc.lineSeparator(), sels[i].anchor, sels[i].head, "+input");
           }
 
-          var new_indentation;
           sels = cm.listSelections();
           for (var i = 0; i < sels.length; i++) {
             var state = tokens[i].state;
             var prev_line = cm.doc.getLine(sels[i].anchor.line - 1);
             if (state.inCodeBlock) {
+              var prev_indentation;
               if (state.codeBlockHasReadText) {
-                new_indentation = /^\s*/.exec(prev_line)[0];
+                prev_indentation = /^\s*/.exec(prev_line)[0];
               } else {
-                new_indentation = /^[-*+>\s]*/.exec(prev_line)[0];
-                new_indentation = new_indentation.replace(/[-*+>]/g, ' ');
+                prev_indentation = /^[-*+>\s]*/.exec(prev_line)[0];
+                prev_indentation = prev_indentation.replace(/[-*+>]/g, ' ');
               }
             } else {
-              // Need a space after the dot, or to reach the end of the line
-              var digits = /^\s*(\d+)\.($|\s+)/.exec(prev_line);
+              var digits = /^\s*(\d+)\.\s+/.exec(prev_line);
               if (digits) {
                 prev_line = prev_line.replace(/\d+/, parseInt(digits,10) + 1);
               }
-              new_indentation = /^\s*(\d+)\.\s+|[-*+>\s]*/.exec(prev_line)[0];
+              var alpha = /^\s*([a-zA-Z])\.\s+/.exec(prev_line);
+              if (alpha) {
+                prev_line = prev_line.replace(/[a-zA-Z]/, String.fromCharCode(alpha[1].charCodeAt(0) + 1));
+              }
+              prev_indentation = /^\s*(\d+|[a-zA-Z])\.\s+|[-*+>\s]*/.exec(prev_line)[0];
             }
-            cm.replaceRange(new_indentation, sels[i].anchor, sels[i].head, "+input");
+            cm.replaceRange(prev_indentation, sels[i].anchor, sels[i].head, "+input");
           }
           cm.scrollIntoView();
         },
         "Home": "goLineLeftSmart",
         "End": "goLineRight",
-        "Ctrl-D": this.duplicate.bind(this),
-        "Cmd-D": this.duplicate.bind(this),
+        "Ctrl-D": duplicate,
+        "Cmd-D": duplicate,
         // Shift has to be first for some reason...
-        "Shift-Ctrl-Up": this.moveSelectedLinesUp.bind(this),
-        "Shift-Cmd-Up": this.moveSelectedLinesUp.bind(this),
-        "Shift-Ctrl-Down": this.moveSelectedLinesDown.bind(this),
-        "Shift-Cmd-Down": this.moveSelectedLinesDown.bind(this),
+        "Shift-Ctrl-Up": moveSelectedLinesUp,
+        "Shift-Cmd-Up": moveSelectedLinesUp,
+        "Shift-Ctrl-Down": moveSelectedLinesDown,
+        "Shift-Cmd-Down": moveSelectedLinesDown,
       }
     });
     // only use CodeMirror markselection when not in contenteditable
@@ -289,10 +284,9 @@ function IndentEditor(target_textarea, indent_editor_options) {
       }
     });
 
-    // This is the base padding in the css if I remember well
     var basePadding = 4;
     editor.on("renderLine", function(cm, line, elt) {
-      var measures = self.measureLineElement(elt);
+      var measures = measureLineElement(elt);
       var indentationWidth = measures.indentWidth;
 
       var scrollInfo = cm.getScrollInfo();
@@ -309,16 +303,10 @@ function IndentEditor(target_textarea, indent_editor_options) {
       if (measures.textMustWrap) {
         elt.className += " cm-line-is-wrapped";
       }
-      // Making the lines after the first have just the right indentation using padding.
-      // And making the first line back to where it would be by removing that padding.
+
       elt.style.textIndent = "-" + wrapOffset + "px";
       elt.style.paddingLeft = (basePadding + wrapOffset) + "px";
     });
-
-    this.setAllowLongerLinesNoRefresh(!!indent_editor_options.allow_longer_lines)
-    this.setColorHeaders(!!indent_editor_options.color_headers)
-    this.setMonospaceNoRefresh(!!indent_editor_options.monospace)
-
     editor.refresh();
 
     // Need to do refresh on the codemirror instance when there is resizing
@@ -331,44 +319,6 @@ function IndentEditor(target_textarea, indent_editor_options) {
       resize_timeout_handle = setTimeout(function() { editor.refresh(); }, 1000)
     });
   }
-
-  this.setAllowLongerLinesNoRefresh = function(true_false) {
-    indent_editor_options.allow_longer_lines = true_false;
-    if (true_false) {
-      this.editor.getWrapperElement().classList.remove("remove-longer-lines");
-    } else {
-      this.editor.getWrapperElement().classList.add("remove-longer-lines");
-    }
-  }
-
-  this.setAllowLongerLines = function(true_false) {
-    this.setAllowLongerLinesNoRefresh(true_false);
-    this.editor.refresh();
-  }
-
-  this.setColorHeaders = function(true_false) {
-    indent_editor_options.color_headers = true_false;
-    if (true_false) {
-      this.editor.getWrapperElement().classList.add("cfg-color-headers");
-    } else {
-      this.editor.getWrapperElement().classList.remove("cfg-color-headers");
-    }
-  }
-
-  this.setMonospaceNoRefresh = function(true_false) {
-    indent_editor_options.monospace = true_false;
-    if (true_false) {
-      this.editor.getWrapperElement().classList.add("use-monospace-everywhere");
-    } else {
-      this.editor.getWrapperElement().classList.remove("use-monospace-everywhere");
-    }
-  }
-
-  this.setMonospace = function(true_false) {
-    this.setMonospaceNoRefresh(true_false);
-    this.editor.refresh();
-  }
-
-
-  this.setupEditor(target_textarea)
+  setupEditor(target_textarea)
+  return editor;
 };
